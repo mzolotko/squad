@@ -25,12 +25,13 @@ class SQuAD(data.Dataset):
     Each item in the dataset is a tuple with the following entries (in order):
         - context_idxs: Indices of the words in the context.
             Shape (context_len,).
-        - context_char_idxs: Indices of the characters in the context.
-            Shape (context_len, max_word_len).
-        - question_idxs: Indices of the words in the question.
-            Shape (question_len,).
-        - question_char_idxs: Indices of the characters in the question.
-            Shape (question_len, max_word_len).
+
+        - idxs - indices of tokens for a quesion.answer pair. It includes <CLS>  and two <SEP> tokens
+            Shape (context_len + question_len,).
+        - token_type_ids - indicators of whether a token belongs to the question (0) or the answer (1), 0 is also used for padding
+            Shape (context_len + question_len,).
+        - attention_mask - indicators of whether the token is part of padding (in which case attention_mask is 0, otherwise 1)
+            Shape (context_len + question_len,).
         - y1: Index of word in the context where the answer begins.
             -1 if no answer.
         - y2: Index of word in the context where the answer ends.
@@ -45,26 +46,31 @@ class SQuAD(data.Dataset):
         super(SQuAD, self).__init__()
 
         dataset = np.load(data_path)
-        self.context_idxs = torch.from_numpy(dataset['context_idxs']).long()
-        self.context_char_idxs = torch.from_numpy(dataset['context_char_idxs']).long()
-        self.question_idxs = torch.from_numpy(dataset['ques_idxs']).long()
-        self.question_char_idxs = torch.from_numpy(dataset['ques_char_idxs']).long()
+        self.idxs = torch.from_numpy(dataset['idxs']).long()
+        self.token_type_ids = torch.from_numpy(dataset['token_type_ids']).long()
+        self.attention_mask = torch.from_numpy(dataset['attention_mask']).long()
+
+        #self.context_idxs = torch.from_numpy(dataset['context_idxs']).long()
+        #self.context_char_idxs = torch.from_numpy(dataset['context_char_idxs']).long()
+        #self.question_idxs = torch.from_numpy(dataset['ques_idxs']).long()
+        #self.question_char_idxs = torch.from_numpy(dataset['ques_char_idxs']).long()
         self.y1s = torch.from_numpy(dataset['y1s']).long()
         self.y2s = torch.from_numpy(dataset['y2s']).long()
 
-        if use_v2:
-            # SQuAD 2.0: Use index 0 for no-answer token (token 1 = OOV)
-            batch_size, c_len, w_len = self.context_char_idxs.size()
-            ones = torch.ones((batch_size, 1), dtype=torch.int64)
-            self.context_idxs = torch.cat((ones, self.context_idxs), dim=1)
-            self.question_idxs = torch.cat((ones, self.question_idxs), dim=1)
+        ############# we don't use concatentation with a vector of ones
+        #if use_v2:
+        #    # SQuAD 2.0: Use index 0 for no-answer token (token 1 = OOV)
+        #    batch_size, c_len, w_len = self.context_char_idxs.size()
+        #    ones = torch.ones((batch_size, 1), dtype=torch.int64)
+        #    self.context_idxs = torch.cat((ones, self.context_idxs), dim=1)
+        #    self.question_idxs = torch.cat((ones, self.question_idxs), dim=1)
 
-            ones = torch.ones((batch_size, 1, w_len), dtype=torch.int64)
-            self.context_char_idxs = torch.cat((ones, self.context_char_idxs), dim=1)
-            self.question_char_idxs = torch.cat((ones, self.question_char_idxs), dim=1)
+        #    ones = torch.ones((batch_size, 1, w_len), dtype=torch.int64)
+        #    self.context_char_idxs = torch.cat((ones, self.context_char_idxs), dim=1)
+        #    self.question_char_idxs = torch.cat((ones, self.question_char_idxs), dim=1)
 
-            self.y1s += 1
-            self.y2s += 1
+        #    self.y1s += 1
+        #    self.y2s += 1
 
         # SQuAD 1.1: Ignore no-answer examples
         self.ids = torch.from_numpy(dataset['ids']).long()
@@ -73,10 +79,14 @@ class SQuAD(data.Dataset):
 
     def __getitem__(self, idx):
         idx = self.valid_idxs[idx]
-        example = (self.context_idxs[idx],
-                   self.context_char_idxs[idx],
-                   self.question_idxs[idx],
-                   self.question_char_idxs[idx],
+        example = (
+                   #self.context_idxs[idx],
+                   #self.context_char_idxs[idx],
+                   self.idxs[idx],
+                   self.token_type_ids[idx],
+                   self.attention_mask[idx],
+                   #self.question_idxs[idx],
+                   #self.question_char_idxs[idx],
                    self.y1s[idx],
                    self.y2s[idx],
                    self.ids[idx])
@@ -125,22 +135,34 @@ def collate_fn(examples):
         return padded
 
     # Group by tensor type
-    context_idxs, context_char_idxs, \
-        question_idxs, question_char_idxs, \
+    #context_idxs, context_char_idxs, \
+    #    question_idxs, question_char_idxs, \
+    #    y1s, y2s, ids = zip(*examples)
+
+    tokens_bert, token_type_ids, \
+        attention_mask, \
         y1s, y2s, ids = zip(*examples)
 
+
+
     # Merge into batch tensors
-    context_idxs = merge_1d(context_idxs)
-    context_char_idxs = merge_2d(context_char_idxs)
-    question_idxs = merge_1d(question_idxs)
-    question_char_idxs = merge_2d(question_char_idxs)
+    tokens_bert = merge_1d(tokens_bert)
+    token_type_ids = merge_1d(token_type_ids)
+    attention_mask = merge_1d(attention_mask)
+    #context_idxs = merge_1d(context_idxs)
+    #context_char_idxs = merge_2d(context_char_idxs)
+    #question_idxs = merge_1d(question_idxs)
+    #question_char_idxs = merge_2d(question_char_idxs)
     y1s = merge_0d(y1s)
     y2s = merge_0d(y2s)
     ids = merge_0d(ids)
 
-    return (context_idxs, context_char_idxs,
-            question_idxs, question_char_idxs,
-            y1s, y2s, ids)
+    #return (context_idxs, context_char_idxs,
+    #        question_idxs, question_char_idxs,
+    #        y1s, y2s, ids)
+    return (tokens_bert, token_type_ids,
+        attention_mask,
+        y1s, y2s, ids)
 
 
 class AverageMeter:
@@ -384,6 +406,18 @@ def masked_softmax(logits, mask, dim=-1, log_softmax=False):
     probs = softmax_fn(masked_logits, dim)
 
     return probs
+
+def strip_last_ones(att_matrix):
+    '''
+    transforms a tensor made of rows such as [0 0 0 0 1 1 1 1 0 0] into rows [[0 0 0 0 1 1 1 0 0 0],
+    i.e. replace last 1 with 0. Necessary to transform token_type_ids into a correct mask (last token is <SEP> and it cannot be
+    the start or the end of the correct answer)
+    '''
+    batch_size = att_matrix.shape[0]
+    att_matrix_padded = torch.cat([att_matrix, torch.zeros(batch_size,1, dtype=torch.long)], dim=1)
+    att_matrix_diff = att_matrix_padded[:,:-1] - att_matrix_padded[:,1:]
+
+    return torch.where(att_matrix_diff == 1, torch.zeros_like(att_matrix, dtype=torch.long), att_matrix)
 
 
 def visualize(tbx, pred_dict, eval_path, step, split, num_visuals):
@@ -633,8 +667,9 @@ def convert_tokens(eval_dict, qa_id, y_start_list, y_end_list, no_answer):
             pred_dict[str(qid)] = ''
             sub_dict[uuid] = ''
         else:
-            if no_answer:
-                y_start, y_end = y_start - 1, y_end - 1
+            ###############
+            #if no_answer:
+            #    y_start, y_end = y_start - 1, y_end - 1
             start_idx = spans[y_start][0]
             end_idx = spans[y_end][1]
             pred_dict[str(qid)] = context[start_idx: end_idx]

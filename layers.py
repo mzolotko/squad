@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-from util import masked_softmax
+from util import masked_softmax, strip_last_ones
 
 
 class Embedding(nn.Module):
@@ -218,5 +218,54 @@ class BiDAFOutput(nn.Module):
         # Shapes: (batch_size, seq_len)
         log_p1 = masked_softmax(logits_1.squeeze(), mask, log_softmax=True)
         log_p2 = masked_softmax(logits_2.squeeze(), mask, log_softmax=True)
+
+        return log_p1, log_p2
+
+
+
+
+####### QA softmax
+class QASoftmax(nn.Module):
+    """Output layer used by BiDAF for question answering.
+
+    Computes a linear transformation of the attention and modeling
+    outputs, then takes the softmax of the result to get the start pointer.
+    A bidirectional LSTM is then applied the modeling output to produce `mod_2`.
+    A second linear+softmax of the attention output and `mod_2` is used
+    to get the end pointer.
+
+    Args:
+        hidden_size (int): Hidden size used in the BiDAF model.
+
+    """
+    def __init__(self, hidden_size):
+        super(QASoftmax, self).__init__()
+
+        self.start_linear = nn.Linear(hidden_size, 1)  #  (batch_size, sequence_length, 1)
+        self.end_linear = nn.Linear(hidden_size, 1)  #  (batch_size, sequence_length, 1)
+
+    def forward(self, bert_hidden_states, token_type_ids):
+        '''
+        Args:
+        bert_hidden_states: Tensor (batch_size, sequence_length, hidden_size)
+        token_type_ids:  Tensor (batch_size, sequence_length)
+
+        We create a mask for softmax calculation out of token_type_ids
+        token_type_ids are equal to 1 for tokens related to the context, including the last <SEP> token
+        we replace this 1 with 0 below.
+
+        '''
+
+        # Shapes: (batch_size, seq_len, 1)
+        #start_logits = bert_h_states
+        logits_start = self.start_linear(bert_hidden_states)   # (batch_size, sequence_length, 1)
+        #mod_2 = self.rnn(mod, mask.sum(-1))
+        logits_end = self.end_linear(bert_hidden_states)    # (batch_size, sequence_length, 1)
+
+        adj_attention_mask = strip_last_ones(token_type_ids)
+
+        # Shapes: (batch_size, seq_len)
+        log_p1 = masked_softmax(logits_start.squeeze(), adj_attention_mask, log_softmax=True)
+        log_p2 = masked_softmax(logits_end.squeeze(), adj_attention_mask, log_softmax=True)
 
         return log_p1, log_p2

@@ -17,7 +17,7 @@ import util
 from args import get_train_args
 from collections import OrderedDict
 from json import dumps
-from models import BiDAF
+from models import BiDAF, BERTQA
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from ujson import load as json_load
@@ -42,13 +42,17 @@ def main(args):
 
     # Get embeddings
     log.info('Loading embeddings...')
-    word_vectors = util.torch_from_json(args.word_emb_file)
+    #word_vectors = util.torch_from_json(args.word_emb_file)
 
     # Get model
     log.info('Building model...')
-    model = BiDAF(word_vectors=word_vectors,
-                  hidden_size=args.hidden_size,
-                  drop_prob=args.drop_prob)
+    #model = BiDAF(word_vectors=word_vectors,
+    #              hidden_size=args.hidden_size,
+    #              drop_prob=args.drop_prob)
+    #model = BERTQA(word_vectors=word_vectors,
+    #              hidden_size=args.hidden_size,
+    #              drop_prob=args.drop_prob)
+    model = BERTQA(hidden_size=args.hidden_size)
     model = nn.DataParallel(model, args.gpu_ids)
     if args.load_path:
         log.info(f'Loading checkpoint from {args.load_path}...')
@@ -57,7 +61,7 @@ def main(args):
         step = 0
     model = model.to(device)
     model.train()
-    ema = util.EMA(model, args.ema_decay)
+    #ema = util.EMA(model, args.ema_decay)
 
     # Get saver
     saver = util.CheckpointSaver(args.save_dir,
@@ -95,15 +99,21 @@ def main(args):
         log.info(f'Starting epoch {epoch}...')
         with torch.enable_grad(), \
                 tqdm(total=len(train_loader.dataset)) as progress_bar:
-            for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, ids in train_loader:
+            #for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, ids in train_loader:
+            for tokens_bert, token_type_ids, attention_mask, y1, y2, ids in train_loader:
                 # Setup for forward
-                cw_idxs = cw_idxs.to(device)
-                qw_idxs = qw_idxs.to(device)
-                batch_size = cw_idxs.size(0)
+                #cw_idxs = cw_idxs.to(device)
+                #qw_idxs = qw_idxs.to(device)
+                tokens_bert = tokens_bert.to(device)
+                token_type_ids = token_type_ids.to(device)
+                attention_mask = attention_mask.to(device)
+                #batch_size = cw_idxs.size(0)
+                batch_size = tokens_bert.size(0)
                 optimizer.zero_grad()
 
                 # Forward
-                log_p1, log_p2 = model(cw_idxs, qw_idxs)
+                #log_p1, log_p2 = model(cw_idxs, qw_idxs)
+                log_p1, log_p2 = model(tokens_bert, token_type_ids, attention_mask)
                 y1, y2 = y1.to(device), y2.to(device)
                 loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
                 loss_val = loss.item()
@@ -113,7 +123,7 @@ def main(args):
                 nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
                 optimizer.step()
                 scheduler.step(step // batch_size)
-                ema(model, step // batch_size)
+                #ema(model, step // batch_size)
 
                 # Log info
                 step += batch_size
@@ -131,13 +141,13 @@ def main(args):
 
                     # Evaluate and save checkpoint
                     log.info(f'Evaluating at step {step}...')
-                    ema.assign(model)
+                    #ema.assign(model)
                     results, pred_dict = evaluate(model, dev_loader, device,
                                                   args.dev_eval_file,
                                                   args.max_ans_len,
                                                   args.use_squad_v2)
                     saver.save(step, model, results[args.metric_name], device)
-                    ema.resume(model)
+                    #ema.resume(model)
 
                     # Log to console
                     results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in results.items())
@@ -164,14 +174,20 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2):
         gold_dict = json_load(fh)
     with torch.no_grad(), \
             tqdm(total=len(data_loader.dataset)) as progress_bar:
-        for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, ids in data_loader:
+        #for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, ids in data_loader:
+        for tokens_bert, token_type_ids, attention_mask, y1, y2, ids in data_loader:
             # Setup for forward
-            cw_idxs = cw_idxs.to(device)
-            qw_idxs = qw_idxs.to(device)
-            batch_size = cw_idxs.size(0)
+            tokens_bert = tokens_bert.to(device)
+            token_type_ids = token_type_ids.to(device)
+            attention_mask = attention_mask.to(device)
+            #cw_idxs = cw_idxs.to(device)
+            #qw_idxs = qw_idxs.to(device)
+            #batch_size = cw_idxs.size(0)
+            batch_size = tokens_bert.size(0)
 
             # Forward
-            log_p1, log_p2 = model(cw_idxs, qw_idxs)
+            #log_p1, log_p2 = model(cw_idxs, qw_idxs)
+            log_p1, log_p2 = model(tokens_bert, token_type_ids, attention_mask)
             y1, y2 = y1.to(device), y2.to(device)
             loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
             nll_meter.update(loss.item(), batch_size)

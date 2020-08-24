@@ -1,4 +1,4 @@
-"""Download and pre-process SQuAD and GloVe.
+"""Preprocess SQuaD for BERT
 
 Usage:
     > source activate squad
@@ -8,7 +8,7 @@ Pre-processing code adapted from:
     > https://github.com/HKUST-KnowComp/R-Net/blob/master/prepro.py
 
 Author:
-    Chris Chute (chute@stanford.edu)
+    based on Chris Chute (chute@stanford.edu)
 """
 
 import numpy as np
@@ -23,6 +23,10 @@ from collections import Counter
 from subprocess import run
 from tqdm import tqdm
 from zipfile import ZipFile
+
+import time
+
+from transformers import BertTokenizer
 
 
 def download_url(url, output_path, show_progress=True):
@@ -74,6 +78,9 @@ def word_tokenize(sent):
     doc = nlp(sent)
     return [token.text for token in doc]
 
+def word_tokenize_bert(sent1, sent2, pad_limit):
+    tokenizer = BertTokenizer.from_pretrained("bert-base-cased")
+    return tokenizer(text=sent1, text_pair=sent2, padding='max_length', max_length=pad_limit) # dict ('input_ids': List[list], token_type_ids:  List[list], attention_mask:  List[list])
 
 def convert_idx(text, tokens):
     current = 0
@@ -88,9 +95,19 @@ def convert_idx(text, tokens):
     return spans
 
 
-def process_file(filename, data_type, word_counter, char_counter):
+#def process_file(filename, data_type, word_counter, char_counter):
+def process_file(filename, data_type, args):
+    #tim = time.time()
+    #print('entered process_file')
+    para_limit = args.para_limit
+    ques_limit = args.ques_limit
+    #char_limit = args.char_limit
     print(f"Pre-processing {data_type} examples...")
     examples = []
+    #contexts_all = []
+    contexts = []
+    #questions_all = []
+    questions = []
     eval_examples = {}
     total = 0
     with open(filename, "r") as fh:
@@ -99,23 +116,39 @@ def process_file(filename, data_type, word_counter, char_counter):
             for para in article["paragraphs"]:
                 context = para["context"].replace(
                     "''", '" ').replace("``", '" ')
-                context_tokens = word_tokenize(context)
-                context_chars = [list(token) for token in context_tokens]
-                spans = convert_idx(context, context_tokens)
-                for token in context_tokens:
-                    word_counter[token] += len(para["qas"])
-                    for char in token:
-                        char_counter[char] += len(para["qas"])
+                context_tokens_spacy = word_tokenize(context)
+                #context_tokens_bert = word_tokenize_bert(context, para_limit)['input_ids']  #'input_ids': List (it's just one sentence)
+                #context_token_type_ids = word_tokenize_bert(context, para_limit)['token_type_ids']  # token_type_ids:  List
+                #context_attention_mask = word_tokenize_bert(context, para_limit)['attention_mask']  # token_type_ids:  List
+                #context_chars = [list(token) for token in context_tokens]
+                spans = convert_idx(context, context_tokens_spacy)
+                #for token in context_tokens:
+                #    word_counter[token] += len(para["qas"])
+                #    for char in token:
+                #           char_counter[char] += len(para["qas"])
                 for qa in para["qas"]:
                     total += 1
                     ques = qa["question"].replace(
                         "''", '" ').replace("``", '" ')
-                    ques_tokens = word_tokenize(ques)
-                    ques_chars = [list(token) for token in ques_tokens]
-                    for token in ques_tokens:
-                        word_counter[token] += 1
-                        for char in token:
-                            char_counter[char] += 1
+
+                    #ques_tokens_bert = word_tokenize_bert(ques, ques_limit)['input_ids']  #'input_ids': List[list], token_type_ids:  List[list], attention_mask:  List[list])
+                    #ques_token_type_ids = word_tokenize_bert(ques, ques_limit)['token_type_ids']  # token_type_ids:  List[list]
+                    #ques_attention_mask = word_tokenize_bert(ques, ques_limit)['attention_mask']  # token_type_ids:  List[list]
+
+                    #tokenizer_result = word_tokenize_bert(sent1=ques, sent2=context, pad_limit=para_limit+ques_limit)
+                    #tokens_bert = tokenizer_result['input_ids']
+                    #token_type_ids = tokenizer_result['token_type_ids']
+                    #attention_mask = tokenizer_result['attention_mask']
+
+
+
+
+                    #ques_tokens = word_tokenize(ques)
+                    #ques_chars = [list(token) for token in ques_tokens]
+                    #for token in ques_tokens:
+                    #    word_counter[token] += 1
+                    #    for char in token:
+                    #        char_counter[char] += 1
                     y1s, y2s = [], []
                     answer_texts = []
                     for answer in qa["answers"]:
@@ -130,21 +163,37 @@ def process_file(filename, data_type, word_counter, char_counter):
                         y1, y2 = answer_span[0], answer_span[-1]
                         y1s.append(y1)
                         y2s.append(y2)
-                    example = {"context_tokens": context_tokens,
-                               "context_chars": context_chars,
-                               "ques_tokens": ques_tokens,
-                               "ques_chars": ques_chars,
+                    example = {#"context_tokens": context_tokens,
+                               'context_tokens_spacy': context_tokens_spacy,
+                               #'context_tokens_bert': context_tokens_bert,
+                               #'context_token_type_ids': context_token_type_ids,
+                               #'context_attention_mask': context_attention_mask,
+                               #'tokens_bert': tokens_bert,
+                               #'token_type_ids': token_type_ids,
+                               #'attention_mask': attention_mask,
+                               #"context_chars": context_chars,
+                               #"ques_tokens": ques_tokens,
+                               #"ques_chars": ques_chars,
                                "y1s": y1s,
                                "y2s": y2s,
                                "id": total}
                     examples.append(example)
+                    contexts.append(context)
+                    questions.append(ques)
                     eval_examples[str(total)] = {"context": context,
                                                  "question": ques,
                                                  "spans": spans,
                                                  "answers": answer_texts,
                                                  "uuid": qa["id"]}
+                    #print(f'next example finished, {time.time() - tim:.2f} s. elapsed')
+
+        tokenizer_result = word_tokenize_bert(sent1=questions, sent2=contexts, pad_limit=para_limit+ques_limit)
+        tokens_bert = tokenizer_result['input_ids']
+        token_type_ids = tokenizer_result['token_type_ids']
+        attention_mask = tokenizer_result['attention_mask']
+
         print(f"{len(examples)} questions in total")
-    return examples, eval_examples
+    return examples, eval_examples, tokens_bert, token_type_ids, attention_mask
 
 
 def get_embedding(counter, data_type, limit=-1, emb_file=None, vec_size=None, num_vectors=None):
@@ -243,18 +292,37 @@ def is_answerable(example):
     return len(example['y2s']) > 0 and len(example['y1s']) > 0
 
 
-def build_features(args, examples, data_type, out_file, word2idx_dict, char2idx_dict, is_test=False):
+#def build_features(args, examples, data_type, out_file, word2idx_dict, char2idx_dict, is_test=False):
+def build_features(args, examples, tokens_bert, token_type_ids, attention_mask, data_type, out_file, is_test=False):
+    '''
+    examples: list of dict( context_tokens_spacy, tokens_bert: list[para_limit + ques_limit], token_type_ids: list[para_limit + ques_limit],
+                            attention_mask: list[para_limit + ques_limit], y1s, y2s, id)
+    '''
+    #tim = time.time()
+    #print('entered build_features')
+
+    #print('examples[0]')
+    #print(examples[0])
+    #print('examples[1]')
+    #print(examples[1])
+    #print('tokens_bert[0]')
+    #print(tokens_bert[0])
+    #print('tokens_bert[1]')
+    #print(tokens_bert[1])
+
     para_limit = args.test_para_limit if is_test else args.para_limit
     ques_limit = args.test_ques_limit if is_test else args.ques_limit
     ans_limit = args.ans_limit
-    char_limit = args.char_limit
+    #char_limit = args.char_limit
 
-    def drop_example(ex, is_test_=False):
+    def drop_example(n, ex, is_test_=False):
         if is_test_:
             drop = False
         else:
-            drop = len(ex["context_tokens"]) > para_limit or \
-                   len(ex["ques_tokens"]) > ques_limit or \
+            #drop = len(ex["context_tokens_bert"]) > para_limit or \
+            #       len(ex["ques_tokens_bert"]) > ques_limit or \
+            # drop = len(ex["tokens_bert"]) > (para_limit + ques_limit) or \
+            drop = len(tokens_bert[n]) > (para_limit + ques_limit) or \
                    (is_answerable(ex) and
                     ex["y2s"][0] - ex["y1s"][0] > ans_limit)
 
@@ -264,58 +332,73 @@ def build_features(args, examples, data_type, out_file, word2idx_dict, char2idx_
     total = 0
     total_ = 0
     meta = {}
-    context_idxs = []
-    context_char_idxs = []
-    ques_idxs = []
-    ques_char_idxs = []
+    to_drop_lst = []
+    #context_idxs = []
+    #context_token_type_ids = []
+    #context_attention_mask = []
+    #context_char_idxs = []
+    #idxs = []
+    #token_type_ids = []
+    #attention_mask = []
+    #ques_char_idxs = []
     y1s = []
     y2s = []
     ids = []
     for n, example in tqdm(enumerate(examples)):
         total_ += 1
 
-        if drop_example(example, is_test):
+        if drop_example(n, example, is_test):
+            #print(example)
+            to_drop_lst.append(n)
             continue
 
         total += 1
 
-        def _get_word(word):
-            for each in (word, word.lower(), word.capitalize(), word.upper()):
-                if each in word2idx_dict:
-                    return word2idx_dict[each]
-            return 1
+        #def _get_word(word):
+        #    for each in (word, word.lower(), word.capitalize(), word.upper()):
+        #        if each in word2idx_dict:
+        #            return word2idx_dict[each]
+        #    return 1
 
-        def _get_char(char):
-            if char in char2idx_dict:
-                return char2idx_dict[char]
-            return 1
+        #def _get_char(char):
+        #    if char in char2idx_dict:
+        #        return char2idx_dict[char]
+        #    return 1
 
-        context_idx = np.zeros([para_limit], dtype=np.int32)
-        context_char_idx = np.zeros([para_limit, char_limit], dtype=np.int32)
-        ques_idx = np.zeros([ques_limit], dtype=np.int32)
-        ques_char_idx = np.zeros([ques_limit, char_limit], dtype=np.int32)
+        #context_idx = np.zeros([para_limit], dtype=np.int32)
+        #context_char_idx = np.zeros([para_limit, char_limit], dtype=np.int32)
+        #ques_idx = np.zeros([ques_limit], dtype=np.int32)
+        #ques_char_idx = np.zeros([ques_limit, char_limit], dtype=np.int32)
 
-        for i, token in enumerate(example["context_tokens"]):
-            context_idx[i] = _get_word(token)
-        context_idxs.append(context_idx)
+        #for i, token in enumerate(example["context_tokens"]):
+        #    context_idx[i] = _get_word(token)
+        #context_idxs.append(context_idx)
+        #context_idxs.append(example['context_tokens_bert'])
+        #context_token_type_ids.append(example['context_token_type_ids'])
+        #context_attention_mask.append(example['context_attention_mask'])
 
-        for i, token in enumerate(example["ques_tokens"]):
-            ques_idx[i] = _get_word(token)
-        ques_idxs.append(ques_idx)
 
-        for i, token in enumerate(example["context_chars"]):
-            for j, char in enumerate(token):
-                if j == char_limit:
-                    break
-                context_char_idx[i, j] = _get_char(char)
-        context_char_idxs.append(context_char_idx)
 
-        for i, token in enumerate(example["ques_chars"]):
-            for j, char in enumerate(token):
-                if j == char_limit:
-                    break
-                ques_char_idx[i, j] = _get_char(char)
-        ques_char_idxs.append(ques_char_idx)
+        #for i, token in enumerate(example["ques_tokens"]):
+        #    ques_idx[i] = _get_word(token)
+        #ques_idxs.append(ques_idx)
+        #idxs.append(example['tokens_bert'])
+        #token_type_ids.append(example['token_type_ids'])
+        #attention_mask.append(example['attention_mask'])
+
+        #for i, token in enumerate(example["context_chars"]):
+        #    for j, char in enumerate(token):
+        #        if j == char_limit:
+        #            break
+        #        context_char_idx[i, j] = _get_char(char)
+        #context_char_idxs.append(context_char_idx)
+
+        #for i, token in enumerate(example["ques_chars"]):
+        #    for j, char in enumerate(token):
+        #        if j == char_limit:
+        #            break
+        #        ques_char_idx[i, j] = _get_char(char)
+        #ques_char_idxs.append(ques_char_idx)
 
         if is_answerable(example):
             start, end = example["y1s"][-1], example["y2s"][-1]
@@ -325,15 +408,57 @@ def build_features(args, examples, data_type, out_file, word2idx_dict, char2idx_
         y1s.append(start)
         y2s.append(end)
         ids.append(example["id"])
+        #print(f'next example finished, {time.time() - tim:.2f} s. elapsed')
+    #print('shape of context_idxs: ', np.array(context_idxs).shape)
+    #print('shape of context_token_type_ids: ', np.array(context_token_type_ids).shape)
+    #print('shape of context_attention_mask: ', np.array(context_attention_mask).shape)
+    #print('shape of idxs: ', np.array(idxs).shape)
+    #print('shape of token_type_ids: ', np.array(token_type_ids).shape)
+    #print('shape of attention_mask: ', np.array(attention_mask).shape)
+
+    print('len of tokens_bert:', len(tokens_bert) )
+    #for i, ex in enumerate(tokens_bert):
+    #     print(f'len of tokens_bert[{i}]: {len(tokens_bert[i])}',  )
+
+
+    #for i, record in enumerate(tokens_bert):
+    for i in list(range(len(tokens_bert)))[::-1]:  # traverding in reverse order
+        if len(tokens_bert[i]) > (para_limit + ques_limit) or \
+        (is_answerable(examples[i]) and
+         examples[i]["y2s"][0] - examples[i]["y1s"][0] > ans_limit):
+            tokens_bert.pop(i)
+            token_type_ids.pop(i)
+            attention_mask.pop(i)
+
+
+
+    #tokens_bert = np.array(tokens_bert, dtype=object)
+    #token_type_ids = np.array(token_type_ids, dtype=object)
+    #attention_mask = np.array(attention_mask, dtype=object)
+    #tokens_bert = np.delete(tokens_bert, to_drop_lst)
+    #token_type_ids = np.delete(token_type_ids, to_drop_lst)
+    #attention_mask = np.delete(attention_mask, to_drop_lst)
+    #print(len(tokens_bert) )
+    #print(len(y1s) )
+    assert len(tokens_bert) == len(y1s)
+
 
     np.savez(out_file,
-             context_idxs=np.array(context_idxs),
-             context_char_idxs=np.array(context_char_idxs),
-             ques_idxs=np.array(ques_idxs),
-             ques_char_idxs=np.array(ques_char_idxs),
+             #context_idxs=np.array(context_idxs),
+             #context_token_type_ids=np.array(context_token_type_ids),
+             #context_attention_mask=np.array(context_attention_mask),
+             #context_char_idxs=np.array(context_char_idxs),
+             idxs=np.array(tokens_bert),
+             token_type_ids=np.array(token_type_ids),
+             attention_mask=np.array(attention_mask),
+             #idx=tokens_bert,
+             #token_type_ids=token_type_ids,
+             #attention_mask=attention_mask,
+             #ques_char_idxs=np.array(ques_char_idxs),
              y1s=np.array(y1s),
              y2s=np.array(y2s),
              ids=np.array(ids))
+    print(f'files saved, {time.time() - tim:.2f} s. elapsed')
     print(f"Built {total} / {total_} instances of features in total")
     meta["total"] = total
     return meta
@@ -347,40 +472,55 @@ def save(filename, obj, message=None):
 
 
 def pre_process(args):
+    tim = time.time()
+    print('started pre_process')
     # Process training set and use it to decide on the word/character vocabularies
-    word_counter, char_counter = Counter(), Counter()
-    train_examples, train_eval = process_file(args.train_file, "train", word_counter, char_counter)
-    word_emb_mat, word2idx_dict = get_embedding(
-        word_counter, 'word', emb_file=args.glove_file, vec_size=args.glove_dim, num_vectors=args.glove_num_vecs)
-    char_emb_mat, char2idx_dict = get_embedding(
-        char_counter, 'char', emb_file=None, vec_size=args.char_dim)
+    #word_counter, char_counter = Counter(), Counter()
+    #train_examples, train_eval = process_file(args.train_file, "train", word_counter, char_counter)
+    train_examples, train_eval, train_tokens_bert, train_token_type_ids, train_attention_mask = process_file(args.train_file, "train", args)
+    #word_emb_mat, word2idx_dict = get_embedding(
+    #  word_counter, 'word', emb_file=args.glove_file, vec_size=args.glove_dim, num_vectors=args.glove_num_vecs)
+    #char_emb_mat, char2idx_dict = get_embedding(
+    #    char_counter, 'char', emb_file=None, vec_size=args.char_dim)
 
     # Process dev and test sets
-    dev_examples, dev_eval = process_file(args.dev_file, "dev", word_counter, char_counter)
-    build_features(args, train_examples, "train", args.train_record_file, word2idx_dict, char2idx_dict)
-    dev_meta = build_features(args, dev_examples, "dev", args.dev_record_file, word2idx_dict, char2idx_dict)
+    #dev_examples, dev_eval = process_file(args.dev_file, "dev", word_counter, char_counter)
+    dev_examples, dev_eval, dev_tokens_bert, dev_token_type_ids, dev_attention_mask = process_file(args.dev_file, "dev", args)
+    print(f'exited process_file, {time.time() - tim:.2f} s. elapsed')
+    build_features(args, train_examples, train_tokens_bert, train_token_type_ids, train_attention_mask,  "train", args.train_record_file)
+    #dev_meta = build_features(args, dev_examples, "dev", args.dev_record_file, word2idx_dict, char2idx_dict)
+    dev_meta = build_features(args, dev_examples, dev_tokens_bert, dev_token_type_ids, dev_attention_mask, "dev", args.dev_record_file)
+    print(f'exited build_features, {time.time() - tim:.2f} s. elapsed')
+    ###################
     if args.include_test_examples:
-        test_examples, test_eval = process_file(args.test_file, "test", word_counter, char_counter)
+        #test_examples, test_eval = process_file(args.test_file, "test", word_counter, char_counter)
+        test_examples, test_eval, test_tokens_bert, test_token_type_ids, test_attention_mask = process_file(args.test_file, "test", args)
         save(args.test_eval_file, test_eval, message="test eval")
-        test_meta = build_features(args, test_examples, "test",
-                                   args.test_record_file, word2idx_dict, char2idx_dict, is_test=True)
+        test_meta = build_features(args, test_examples, test_tokens_bert, test_token_type_ids, test_attention_mask,  "test",
+                                   args.test_record_file, is_test=True)
+        #test_meta = build_features(args, test_examples, "test",
+        #                           args.test_record_file, word2idx_dict, char2idx_dict, is_test=True)
         save(args.test_meta_file, test_meta, message="test meta")
 
-    save(args.word_emb_file, word_emb_mat, message="word embedding")
-    save(args.char_emb_file, char_emb_mat, message="char embedding")
+    #save(args.word_emb_file, word_emb_mat, message="word embedding")
+    #save(args.char_emb_file, char_emb_mat, message="char embedding")
     save(args.train_eval_file, train_eval, message="train eval")
     save(args.dev_eval_file, dev_eval, message="dev eval")
-    save(args.word2idx_file, word2idx_dict, message="word dictionary")
-    save(args.char2idx_file, char2idx_dict, message="char dictionary")
+    print(f'exited saving dev_eval, {time.time() - tim:.2f} s. elapsed')
+    #save(args.word2idx_file, word2idx_dict, message="word dictionary")
+    #save(args.char2idx_file, char2idx_dict, message="char dictionary")
     save(args.dev_meta_file, dev_meta, message="dev meta")
+    print(f'exited saving dev_meta_file, {time.time() - tim:.2f} s. elapsed')
 
 
 if __name__ == '__main__':
     # Get command-line args
+    tim = time.time()
+    print('started main')
     args_ = get_setup_args()
 
     # Download resources
-    download(args_)
+    #download(args_)
 
     # Import spacy language model
     nlp = spacy.blank("en")
@@ -388,9 +528,15 @@ if __name__ == '__main__':
     # Preprocess dataset
     args_.train_file = url_to_data_path(args_.train_url)
     args_.dev_file = url_to_data_path(args_.dev_url)
+
+    ############
     if args_.include_test_examples:
         args_.test_file = url_to_data_path(args_.test_url)
-    glove_dir = url_to_data_path(args_.glove_url.replace('.zip', ''))
-    glove_ext = f'.txt' if glove_dir.endswith('d') else f'.{args_.glove_dim}d.txt'
-    args_.glove_file = os.path.join(glove_dir, os.path.basename(glove_dir) + glove_ext)
+
+
+    #glove_dir = url_to_data_path(args_.glove_url.replace('.zip', ''))
+    #glove_ext = f'.txt' if glove_dir.endswith('d') else f'.{args_.glove_dim}d.txt'
+    #args_.glove_file = os.path.join(glove_dir, os.path.basename(glove_dir) + glove_ext)
+    print(f'entering pre_process, {time.time() - tim:.2f} s. elapsed')
     pre_process(args_)
+    print(f'exit pre_process, {time.time() - tim:.2f} s. elapsed')
