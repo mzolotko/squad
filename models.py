@@ -122,7 +122,10 @@ class BERTQA(nn.Module):
         token_type_ids: Tensor (batch_size, sequence_length)
         attention_mask: Tensor (batch_size, sequence_length)
         '''
-
+        #print('shape of tokens_bert, token_type_ids, attention_mask:')
+        #print(tokens_bert.shape)
+        #print(token_type_ids.shape)
+        #print(attention_mask.shape)
         bert_output = self.bert(input_ids=tokens_bert, token_type_ids=token_type_ids, attention_mask=attention_mask)
         bert_hidden_states = bert_output[0]  #  (batch_size, sequence_length, hidden_size)
         out = self.qasoftmax(bert_hidden_states=bert_hidden_states, token_type_ids=token_type_ids)

@@ -100,7 +100,12 @@ def main(args):
         with torch.enable_grad(), \
                 tqdm(total=len(train_loader.dataset)) as progress_bar:
             #for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, ids in train_loader:
+            #print('shape of tokens_bert, token_type_ids, attention_mask:')
+
             for tokens_bert, token_type_ids, attention_mask, y1, y2, ids in train_loader:
+                #print(tokens_bert.shape)
+                #print(token_type_ids.shape)
+                #print(attention_mask.shape)
                 # Setup for forward
                 #cw_idxs = cw_idxs.to(device)
                 #qw_idxs = qw_idxs.to(device)

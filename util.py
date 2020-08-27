@@ -118,12 +118,20 @@ def collate_fn(examples):
         return torch.tensor(scalars, dtype=dtype)
 
     def merge_1d(arrays, dtype=torch.int64, pad_value=0):
+        #print('shapes')
+        #for array in arrays:
+        #    print(array.shape)
         lengths = [(a != pad_value).sum() for a in arrays]
+        #print('lengths of non-pad sequences: ', lengths)
         padded = torch.zeros(len(arrays), max(lengths), dtype=dtype)
         for i, seq in enumerate(arrays):
             end = lengths[i]
             padded[i, :end] = seq[:end]
         return padded
+
+    def merge_1d_notrim(arrays):
+        return torch.stack(arrays, dim=0)
+
 
     def merge_2d(matrices, dtype=torch.int64, pad_value=0):
         heights = [(m.sum(1) != pad_value).sum() for m in matrices]
@@ -146,9 +154,9 @@ def collate_fn(examples):
 
 
     # Merge into batch tensors
-    tokens_bert = merge_1d(tokens_bert)
-    token_type_ids = merge_1d(token_type_ids)
-    attention_mask = merge_1d(attention_mask)
+    tokens_bert = merge_1d_notrim(tokens_bert)
+    token_type_ids = merge_1d_notrim(token_type_ids)
+    attention_mask = merge_1d_notrim(attention_mask)
     #context_idxs = merge_1d(context_idxs)
     #context_char_idxs = merge_2d(context_char_idxs)
     #question_idxs = merge_1d(question_idxs)

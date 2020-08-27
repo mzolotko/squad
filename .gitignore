@@ -2,5 +2,7 @@
 .idea/
 __pycache__
 .texpadtmp/
-data/
+data/*.npz
+data/*eval.json
+data/*meta.json
 save/

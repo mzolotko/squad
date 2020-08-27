@@ -1,4 +1,4 @@
-name: squad2
+name: squad
 channels:
   - pytorch
   - conda-forge
@@ -6,7 +6,7 @@ channels:
 dependencies:
   - python=3.6
   - ujson
-  - numpy=1.16.6
+  - numpy
   - pip
   - spacy=2.0.16
   - tensorboard
@@ -15,8 +15,5 @@ dependencies:
   - tqdm
   - urllib3
   - pytorch=1.0.0
-  - jupyter
-  - ipython
   - pip:
     - torch==1.0.0
-    - transformers
