@@ -6,3 +6,4 @@ data/*.npz
 data/*eval.json
 data/*meta.json
 save/
+ideas

@@ -93,7 +93,7 @@ class BERTQA(nn.Module):
 
 
         #tokenizer = BertTokenizerFast.from_pretrained('bert-base-uncased')
-        self.bert = BertModel.from_pretrained('bert-base-uncased')  # main output (batch_size, sequence_length, hidden_size)
+        self.bert = BertModel.from_pretrained('bert-base-cased')  # main output (batch_size, sequence_length, hidden_size)
         self.qasoftmax = layers.QASoftmax(hidden_size)
         #self.qa = layers.Embedding(word_vectors=word_vectors,
         #                            hidden_size=hidden_size,

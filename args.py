@@ -219,6 +219,7 @@ def add_train_test_args(parser):
     parser.add_argument('--num_workers',
                         type=int,
                         default=4,
+                        #default=1,
                         help='Number of sub-processes to use per data loader.')
     parser.add_argument('--save_dir',
                         type=str,
@@ -235,7 +236,7 @@ def add_train_test_args(parser):
                         help='Whether to use SQuAD 2.0 (unanswerable) questions.')
     parser.add_argument('--hidden_size',
                         type=int,
-                        default=100,
+                        default=768,   # to match BERT base
                         help='Number of features in encoder hidden layers.')
     parser.add_argument('--num_visuals',
                         type=int,

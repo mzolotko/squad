@@ -13,6 +13,7 @@ import torch.optim as optim
 import torch.optim.lr_scheduler as sched
 import torch.utils.data as data
 import util
+import gc
 
 from args import get_train_args
 from collections import OrderedDict
@@ -29,7 +30,10 @@ def main(args):
     args.save_dir = util.get_save_dir(args.save_dir, args.name, training=True)
     log = util.get_logger(args.save_dir, args.name)
     tbx = SummaryWriter(args.save_dir)
-    device, args.gpu_ids = util.get_available_devices()
+    ####device, args.gpu_ids = util.get_available_devices()
+    # coucou
+    device, args.gpu_ids = torch.device('cpu'), []
+    print(f'devices: {device}, {args.gpu_ids}')
     log.info(f'Args: {dumps(vars(args), indent=4, sort_keys=True)}')
     args.batch_size *= max(1, len(args.gpu_ids))
 
@@ -53,7 +57,7 @@ def main(args):
     #              hidden_size=args.hidden_size,
     #              drop_prob=args.drop_prob)
     model = BERTQA(hidden_size=args.hidden_size)
-    model = nn.DataParallel(model, args.gpu_ids)
+    ####model = nn.DataParallel(model, args.gpu_ids)
     if args.load_path:
         log.info(f'Loading checkpoint from {args.load_path}...')
         model, step = util.load_model(model, args.load_path, args.gpu_ids)
@@ -94,6 +98,7 @@ def main(args):
     log.info('Training...')
     steps_till_eval = args.eval_steps
     epoch = step // len(train_dataset)
+    iii = 0
     while epoch != args.num_epochs:
         epoch += 1
         log.info(f'Starting epoch {epoch}...')
@@ -109,6 +114,8 @@ def main(args):
                 # Setup for forward
                 #cw_idxs = cw_idxs.to(device)
                 #qw_idxs = qw_idxs.to(device)
+                print('qqqqqqqqqqqqqqqqqqqqqqq', iii)
+                iii += 1
                 tokens_bert = tokens_bert.to(device)
                 token_type_ids = token_type_ids.to(device)
                 attention_mask = attention_mask.to(device)
