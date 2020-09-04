@@ -73,7 +73,7 @@ def get_setup_args():
                         help='Number of GloVe vectors')
     parser.add_argument('--ans_limit',
                         type=int,
-                        default=30,
+                        default=50,
                         help='Max number of words in a training example answer')
     parser.add_argument('--char_limit',
                         type=int,
@@ -197,9 +197,15 @@ def add_common_args(parser):
     parser.add_argument('--train_eval_file',
                         type=str,
                         default='./data/train_eval.json')
+    parser.add_argument('--train_ref_file',
+                            type=str,
+                            default='./data/train_ref_bert.json')
     parser.add_argument('--dev_eval_file',
                         type=str,
                         default='./data/dev_eval.json')
+    parser.add_argument('--dev_ref_file',
+                                type=str,
+                                default='./data/dev_ref_bert.json')
     parser.add_argument('--test_eval_file',
                         type=str,
                         default='./data/test_eval.json')

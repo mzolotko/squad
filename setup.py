@@ -23,6 +23,9 @@ from collections import Counter
 from subprocess import run
 from tqdm import tqdm
 from zipfile import ZipFile
+import torch
+
+from util import strip_last_ones
 
 import time
 
@@ -80,18 +83,31 @@ def word_tokenize(sent):
 
 def word_tokenize_bert(sent1, sent2, pad_limit):
     tokenizer = BertTokenizer.from_pretrained("bert-base-cased")
-    return tokenizer(text=sent1, text_pair=sent2, padding='max_length', max_length=pad_limit) # dict ('input_ids': List[list], token_type_ids:  List[list], attention_mask:  List[list])
+    return tokenizer, tokenizer(text=sent1, text_pair=sent2, padding='max_length', max_length=pad_limit) # dict ('input_ids': List[list], token_type_ids:  List[list], attention_mask:  List[list])
 
 def convert_idx(text, tokens):
-    current = 0
+    prev_position = 0
     spans = []
     for token in tokens:
-        current = text.find(token, current)
-        if current < 0:
+        if token.startswith('##'):  # for Bert wordpiece tokens ## is just signal that this is
+            token = token[2:]       # a second, third etc. piece of the word. Strip them for correct span calculation
+        current_position = text.find(token, prev_position)
+
+        # if the token is not found, assume that this is [UNK] and that the corresponding text has length of 1
+        # in such case, if this token is part of the answer, it will for sure be part of y expressed in terms of
+        # token (rather than symbol) indices. The drawback that some subsequent irrelevant [UNK]s can also become
+        # part of y. We assume this will hardly ever be the case
+        if current_position < 0:
             print(f"Token {token} cannot be found")
-            raise Exception()
-        spans.append((current, current + len(token)))
-        current += len(token)
+            #raise Exception()
+            current_position = prev_position
+            spans.append((current_position, current_position + 1))
+            current_position += 1
+            prev_position = current_position
+        else:
+            spans.append((current_position, current_position + len(token)))
+            current_position += len(token)
+            prev_position = current_position
     return spans
 
 
@@ -103,12 +119,14 @@ def process_file(filename, data_type, args):
     ques_limit = args.ques_limit
     #char_limit = args.char_limit
     print(f"Pre-processing {data_type} examples...")
-    examples = []
+    examples_spacy = []
     #contexts_all = []
     contexts = []
     #questions_all = []
     questions = []
+    answers_start_end = []
     eval_examples = {}
+    #examples_bert_ref = {}
     total = 0
     with open(filename, "r") as fh:
         source = json.load(fh)
@@ -121,7 +139,8 @@ def process_file(filename, data_type, args):
                 #context_token_type_ids = word_tokenize_bert(context, para_limit)['token_type_ids']  # token_type_ids:  List
                 #context_attention_mask = word_tokenize_bert(context, para_limit)['attention_mask']  # token_type_ids:  List
                 #context_chars = [list(token) for token in context_tokens]
-                spans = convert_idx(context, context_tokens_spacy)
+                spans_spacy = convert_idx(context, context_tokens_spacy)
+                #spans_bert = convert_idx(context, context_tokens_spacy)
                 #for token in context_tokens:
                 #    word_counter[token] += len(para["qas"])
                 #    for char in token:
@@ -151,13 +170,18 @@ def process_file(filename, data_type, args):
                     #        char_counter[char] += 1
                     y1s, y2s = [], []
                     answer_texts = []
+                    #answer_starts = []
+                    #answer_ends = []
+                    answer_bounds = []
                     for answer in qa["answers"]:
                         answer_text = answer["text"]
                         answer_start = answer['answer_start']
+                        #answer_starts.append(answer_start)
                         answer_end = answer_start + len(answer_text)
+                        answer_bounds.append((answer_start, answer_end))
                         answer_texts.append(answer_text)
                         answer_span = []
-                        for idx, span in enumerate(spans):
+                        for idx, span in enumerate(spans_spacy):
                             if not (answer_end <= span[0] or answer_start >= span[1]):
                                 answer_span.append(idx)
                         y1, y2 = answer_span[0], answer_span[-1]
@@ -174,26 +198,64 @@ def process_file(filename, data_type, args):
                                #"context_chars": context_chars,
                                #"ques_tokens": ques_tokens,
                                #"ques_chars": ques_chars,
-                               "y1s": y1s,
-                               "y2s": y2s,
+                               "y1s_spacy": y1s,
+                               "y2s_spacy": y2s,
                                "id": total}
-                    examples.append(example)
+                    #answers_dict = {'answer_start': answer_starts,
+                    #                    'answer_end': answer_ends}
+                    answers_start_end.append(answer_bounds) # list (number of sent) of list (number of answers) of tuples (dim == 2, start and end)
+                    examples_spacy.append(example)
                     contexts.append(context)
                     questions.append(ques)
                     eval_examples[str(total)] = {"context": context,
                                                  "question": ques,
-                                                 "spans": spans,
+                                                 "spans": spans_spacy,
                                                  "answers": answer_texts,
                                                  "uuid": qa["id"]}
                     #print(f'next example finished, {time.time() - tim:.2f} s. elapsed')
 
-        tokenizer_result = word_tokenize_bert(sent1=questions, sent2=contexts, pad_limit=para_limit+ques_limit)
+        tokenizer, tokenizer_result = word_tokenize_bert(sent1=questions, sent2=contexts, pad_limit=para_limit+ques_limit)
         tokens_bert = tokenizer_result['input_ids']
         token_type_ids = tokenizer_result['token_type_ids']
         attention_mask = tokenizer_result['attention_mask']
 
-        print(f"{len(examples)} questions in total")
-    return examples, eval_examples, tokens_bert, token_type_ids, attention_mask
+        ys_bert = []
+        for i, _ in enumerate(questions):
+            tokens_sentence = torch.tensor(tokens_bert[i])
+            mask = strip_last_ones(torch.tensor(token_type_ids[i]).unsqueeze(dim=0)).bool()
+            spans = convert_idx(contexts[i], tokenizer.convert_ids_to_tokens(torch.masked_select(tokens_sentence, mask)))
+            ys_bert_sentence = []
+            for answer in answers_start_end[i]:
+
+                answer_span = []
+                answer_start = answer[0]
+                answer_end = answer[1]
+
+                for idx, span in enumerate(spans):
+                    if not (answer_end <= span[0] or answer_start >= span[1]):
+                        answer_span.append(idx)
+                        y1, y2 = answer_span[0], answer_span[-1]
+
+                shift = np.argwhere(np.array(token_type_ids[i]) == 1).ravel()[0] # first index where token_type_ids == 1
+
+                #print(f'answer {i}: y1 and y2 before shift: {y1}, {y2}' )
+                y1 = y1 + int(shift)
+                y2 = y2 + int(shift)
+                #print(f'after shift: {y1}, {y2}' )
+                ys_bert_sentence.append((y1, y2))
+            #if ys_bert_sentence != None:  # will be false if there are no answers: e.g. in the test set
+            ys_bert.append(ys_bert_sentence)
+            #examples_bert_ref[str(i)] = {"spans_bert": spans, "ys_bert": ys_bert_sentence}
+
+
+        print(f"{len(questions)} len of questions")
+        print(f"{len(examples_spacy)} questions in total (spacy)")
+        print(f"{len(tokens_bert)} questions in total (bert)")
+        assert len(examples_spacy) == len(tokens_bert)
+
+
+    #return examples_spacy, examples_bert_ref,  eval_examples, ys_bert, tokens_bert, token_type_ids, attention_mask
+    return examples_spacy,  eval_examples, ys_bert, tokens_bert, token_type_ids, attention_mask
 
 
 def get_embedding(counter, data_type, limit=-1, emb_file=None, vec_size=None, num_vectors=None):
@@ -288,12 +350,14 @@ def convert_to_features(args, data, word2idx_dict, char2idx_dict, is_test):
     return context_idxs, context_char_idxs, ques_idxs, ques_char_idxs
 
 
-def is_answerable(example):
-    return len(example['y2s']) > 0 and len(example['y1s']) > 0
+def is_answerable(n, list_of_ex):
+    #return len(example['y2s']) > 0 and len(example['y1s']) > 0
+    #print(n, len(list_of_ex))
+    return bool(list_of_ex[n])
 
 
 #def build_features(args, examples, data_type, out_file, word2idx_dict, char2idx_dict, is_test=False):
-def build_features(args, examples, tokens_bert, token_type_ids, attention_mask, data_type, out_file, is_test=False):
+def build_features(args, examples, ys_bert, tokens_bert, token_type_ids, attention_mask, data_type, out_file, is_test=False):
     '''
     examples: list of dict( context_tokens_spacy, tokens_bert: list[para_limit + ques_limit], token_type_ids: list[para_limit + ques_limit],
                             attention_mask: list[para_limit + ques_limit], y1s, y2s, id)
@@ -309,7 +373,7 @@ def build_features(args, examples, tokens_bert, token_type_ids, attention_mask, 
     #print(tokens_bert[0])
     #print('tokens_bert[1]')
     #print(tokens_bert[1])
-
+    print('lengths of examples and ys_bert', len(examples), len(ys_bert))
     para_limit = args.test_para_limit if is_test else args.para_limit
     ques_limit = args.test_ques_limit if is_test else args.ques_limit
     ans_limit = args.ans_limit
@@ -323,8 +387,10 @@ def build_features(args, examples, tokens_bert, token_type_ids, attention_mask, 
             #       len(ex["ques_tokens_bert"]) > ques_limit or \
             # drop = len(ex["tokens_bert"]) > (para_limit + ques_limit) or \
             drop = len(tokens_bert[n]) > (para_limit + ques_limit) or \
-                   (is_answerable(ex) and
-                    ex["y2s"][0] - ex["y1s"][0] > ans_limit)
+                   (is_answerable(n, ys_bert) and
+                    #ex["y2s"][0] - ex["y1s"][0] > ans_limit)
+                    ys_bert[n][0][1] - ys_bert[n][0][0] > ans_limit)  # just 1st answer is taken into account
+                    # indices: number of sentence, number of answer, index of start/end
 
         return drop
 
@@ -400,10 +466,11 @@ def build_features(args, examples, tokens_bert, token_type_ids, attention_mask, 
         #        ques_char_idx[i, j] = _get_char(char)
         #ques_char_idxs.append(ques_char_idx)
 
-        if is_answerable(example):
-            start, end = example["y1s"][-1], example["y2s"][-1]
+        if is_answerable(n, ys_bert):
+            #start, end = example["y1s"][-1], example["y2s"][-1]
+            start, end = ys_bert[n][-1][0], ys_bert[n][-1][1]
         else:
-            start, end = -1, -1
+            start, end = 0, 0
 
         y1s.append(start)
         y2s.append(end)
@@ -422,10 +489,11 @@ def build_features(args, examples, tokens_bert, token_type_ids, attention_mask, 
 
 
     #for i, record in enumerate(tokens_bert):
-    for i in list(range(len(tokens_bert)))[::-1]:  # traverding in reverse order
+    for i in list(range(len(tokens_bert)))[::-1]:  # traversing in reverse order
         if len(tokens_bert[i]) > (para_limit + ques_limit) or \
-        (is_answerable(examples[i]) and
-         examples[i]["y2s"][0] - examples[i]["y1s"][0] > ans_limit):
+        (is_answerable(i, ys_bert) and
+         #examples[i]["y2s"][0] - examples[i]["y1s"][0] > ans_limit):
+         ys_bert[i][0][1] - ys_bert[i][0][0] > ans_limit):
             tokens_bert.pop(i)
             token_type_ids.pop(i)
             attention_mask.pop(i)
@@ -477,7 +545,8 @@ def pre_process(args):
     # Process training set and use it to decide on the word/character vocabularies
     #word_counter, char_counter = Counter(), Counter()
     #train_examples, train_eval = process_file(args.train_file, "train", word_counter, char_counter)
-    train_examples, train_eval, train_tokens_bert, train_token_type_ids, train_attention_mask = process_file(args.train_file, "train", args)
+    #train_examples, train_ex_bert, train_eval, train_ys_bert, train_tokens_bert, train_token_type_ids, train_attention_mask = process_file(args.train_file, "train", args)
+    train_examples, train_eval, train_ys_bert, train_tokens_bert, train_token_type_ids, train_attention_mask = process_file(args.train_file, "train", args)
     #word_emb_mat, word2idx_dict = get_embedding(
     #  word_counter, 'word', emb_file=args.glove_file, vec_size=args.glove_dim, num_vectors=args.glove_num_vecs)
     #char_emb_mat, char2idx_dict = get_embedding(
@@ -485,18 +554,20 @@ def pre_process(args):
 
     # Process dev and test sets
     #dev_examples, dev_eval = process_file(args.dev_file, "dev", word_counter, char_counter)
-    dev_examples, dev_eval, dev_tokens_bert, dev_token_type_ids, dev_attention_mask = process_file(args.dev_file, "dev", args)
+    #dev_examples, dev_ex_bert, dev_eval, dev_ys_bert, dev_tokens_bert, dev_token_type_ids, dev_attention_mask = process_file(args.dev_file, "dev", args)
+    dev_examples, dev_eval, dev_ys_bert, dev_tokens_bert, dev_token_type_ids, dev_attention_mask = process_file(args.dev_file, "dev", args)
     print(f'exited process_file, {time.time() - tim:.2f} s. elapsed')
-    build_features(args, train_examples, train_tokens_bert, train_token_type_ids, train_attention_mask,  "train", args.train_record_file)
+    build_features(args, train_examples, train_ys_bert, train_tokens_bert, train_token_type_ids, train_attention_mask,  "train", args.train_record_file)
     #dev_meta = build_features(args, dev_examples, "dev", args.dev_record_file, word2idx_dict, char2idx_dict)
-    dev_meta = build_features(args, dev_examples, dev_tokens_bert, dev_token_type_ids, dev_attention_mask, "dev", args.dev_record_file)
+    dev_meta = build_features(args, dev_examples, dev_ys_bert, dev_tokens_bert, dev_token_type_ids, dev_attention_mask, "dev", args.dev_record_file)
     print(f'exited build_features, {time.time() - tim:.2f} s. elapsed')
     ###################
     if args.include_test_examples:
         #test_examples, test_eval = process_file(args.test_file, "test", word_counter, char_counter)
-        test_examples, test_eval, test_tokens_bert, test_token_type_ids, test_attention_mask = process_file(args.test_file, "test", args)
+        #test_examples, test_ex_bert,  test_eval, test_ys_bert, test_tokens_bert, test_token_type_ids, test_attention_mask = process_file(args.test_file, "test", args)
+        test_examples,  test_eval, test_ys_bert, test_tokens_bert, test_token_type_ids, test_attention_mask = process_file(args.test_file, "test", args)
         save(args.test_eval_file, test_eval, message="test eval")
-        test_meta = build_features(args, test_examples, test_tokens_bert, test_token_type_ids, test_attention_mask,  "test",
+        test_meta = build_features(args, test_examples, test_ys_bert, test_tokens_bert, test_token_type_ids, test_attention_mask,  "test",
                                    args.test_record_file, is_test=True)
         #test_meta = build_features(args, test_examples, "test",
         #                           args.test_record_file, word2idx_dict, char2idx_dict, is_test=True)
@@ -505,7 +576,9 @@ def pre_process(args):
     #save(args.word_emb_file, word_emb_mat, message="word embedding")
     #save(args.char_emb_file, char_emb_mat, message="char embedding")
     save(args.train_eval_file, train_eval, message="train eval")
+    #save(args.train_ref_file, train_ex_bert, message="train ref")
     save(args.dev_eval_file, dev_eval, message="dev eval")
+    #save(args.dev_ref_file, dev_ex_bert, message="dev ref")
     print(f'exited saving dev_eval, {time.time() - tim:.2f} s. elapsed')
     #save(args.word2idx_file, word2idx_dict, message="word dictionary")
     #save(args.char2idx_file, char2idx_dict, message="char dictionary")

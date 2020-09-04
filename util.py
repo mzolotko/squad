@@ -422,10 +422,13 @@ def strip_last_ones(att_matrix):
     the start or the end of the correct answer)
     '''
     batch_size = att_matrix.shape[0]
+    # find out the moment of change from 1 to 0
     att_matrix_padded = torch.cat([att_matrix, torch.zeros(batch_size,1, dtype=torch.long)], dim=1)
     att_matrix_diff = att_matrix_padded[:,:-1] - att_matrix_padded[:,1:]
-
-    return torch.where(att_matrix_diff == 1, torch.zeros_like(att_matrix, dtype=torch.long), att_matrix)
+    res = torch.where(att_matrix_diff == 1, torch.zeros_like(att_matrix, dtype=torch.long), att_matrix)
+    #res[:, 0] = 1
+    
+    return res
 
 
 def visualize(tbx, pred_dict, eval_path, step, split, num_visuals):
