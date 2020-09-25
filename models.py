@@ -87,33 +87,11 @@ class BERTQA(nn.Module):
         drop_prob (float): Dropout probability.
     """
     def __init__(self, hidden_size):
+
         super(BERTQA, self).__init__()
-
-
-
-
-        #tokenizer = BertTokenizerFast.from_pretrained('bert-base-uncased')
         self.bert = BertModel.from_pretrained('bert-base-cased')  # main output (batch_size, sequence_length, hidden_size)
         self.qasoftmax = layers.QASoftmax(hidden_size)
-        #self.qa = layers.Embedding(word_vectors=word_vectors,
-        #                            hidden_size=hidden_size,
-        #                            drop_prob=drop_prob)
 
-        #self.enc = layers.RNNEncoder(input_size=hidden_size,
-        #                             hidden_size=hidden_size,
-        #                             num_layers=1,
-        #                             drop_prob=drop_prob)
-
-        #self.att = layers.BiDAFAttention(hidden_size=2 * hidden_size,
-        #                                 drop_prob=drop_prob)
-
-        #self.mod = layers.RNNEncoder(input_size=8 * hidden_size,
-        #                             hidden_size=hidden_size,
-        #                             num_layers=2,
-        #                             drop_prob=drop_prob)
-
-        #self.out = layers.BiDAFOutput(hidden_size=hidden_size,
-        #                              drop_prob=drop_prob)
 
     def forward(self,  tokens_bert, token_type_ids, attention_mask):
 
@@ -122,28 +100,10 @@ class BERTQA(nn.Module):
         token_type_ids: Tensor (batch_size, sequence_length)
         attention_mask: Tensor (batch_size, sequence_length)
         '''
-        #print('shape of tokens_bert, token_type_ids, attention_mask:')
-        #print(tokens_bert.shape)
-        #print(token_type_ids.shape)
-        #print(attention_mask.shape)
+
         bert_output = self.bert(input_ids=tokens_bert, token_type_ids=token_type_ids, attention_mask=attention_mask)
         bert_hidden_states = bert_output[0]  #  (batch_size, sequence_length, hidden_size)
         out = self.qasoftmax(bert_hidden_states=bert_hidden_states, token_type_ids=token_type_ids)
-        #c_mask = torch.zeros_like(cw_idxs) != cw_idxs
-        #q_mask = torch.zeros_like(qw_idxs) != qw_idxs
-        #c_len, q_len = c_mask.sum(-1), q_mask.sum(-1)
 
-        #c_emb = self.emb(cw_idxs)         # (batch_size, c_len, hidden_size)
-        #q_emb = self.emb(qw_idxs)         # (batch_size, q_len, hidden_size)
-
-        #c_enc = self.enc(c_emb, c_len)    # (batch_size, c_len, 2 * hidden_size)
-        #q_enc = self.enc(q_emb, q_len)    # (batch_size, q_len, 2 * hidden_size)
-
-        #att = self.att(c_enc, q_enc,
-    #                   c_mask, q_mask)    # (batch_size, c_len, 8 * hidden_size)
-
-        #mod = self.mod(att, c_len)        # (batch_size, c_len, 2 * hidden_size)
-
-        #out = self.out(att, mod, c_mask)  # 2 tensors, each (batch_size, c_len)
 
         return out

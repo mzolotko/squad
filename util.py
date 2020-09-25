@@ -673,7 +673,11 @@ def convert_tokens(eval_dict, qa_id, y_start_list, y_end_list, no_answer):
     for qid, y_start, y_end in zip(qa_id, y_start_list, y_end_list):
         context = eval_dict[str(qid)]["context"]
         spans = eval_dict[str(qid)]["spans"]
+        shift = eval_dict[str(qid)]["shift"]
         uuid = eval_dict[str(qid)]["uuid"]
+        y_start = y_start - shift
+        y_end = y_end - shift
+        #if no_answer and (y_start < 0 or y_end < 0):
         if no_answer and (y_start == 0 or y_end == 0):
             pred_dict[str(qid)] = ''
             sub_dict[uuid] = ''
@@ -681,6 +685,19 @@ def convert_tokens(eval_dict, qa_id, y_start_list, y_end_list, no_answer):
             ###############
             #if no_answer:
             #    y_start, y_end = y_start - 1, y_end - 1
+            #print(spans)
+            #print(len(spans))
+            #print('y_start: ')
+            #print(y_start)
+            #print(f'qid: {qid}')
+            #print(f'context: {context}')
+            #print(f'shift: {shift}')
+            #print(f'uuid: {uuid}')
+            #print(f'len of spans: { len(spans)}')
+            #print(f'y_start: {y_start}')
+            #print(f'y_end: {y_end}')
+            #print(f'len of spans[y_start]: { len(spans[y_start])}')
+            #print(f'len of spans[y_end]: { len(spans[y_end])}')
             start_idx = spans[y_start][0]
             end_idx = spans[y_end][1]
             pred_dict[str(qid)] = context[start_idx: end_idx]

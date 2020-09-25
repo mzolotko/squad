@@ -24,6 +24,7 @@ from tqdm import tqdm
 from ujson import load as json_load
 from util import collate_fn, SQuAD
 
+from transformers import AdamW, get_linear_schedule_with_warmup
 
 def main(args):
     # Set up logging and devices
@@ -46,16 +47,9 @@ def main(args):
 
     # Get embeddings
     log.info('Loading embeddings...')
-    #word_vectors = util.torch_from_json(args.word_emb_file)
 
     # Get model
     log.info('Building model...')
-    #model = BiDAF(word_vectors=word_vectors,
-    #              hidden_size=args.hidden_size,
-    #              drop_prob=args.drop_prob)
-    #model = BERTQA(word_vectors=word_vectors,
-    #              hidden_size=args.hidden_size,
-    #              drop_prob=args.drop_prob)
     model = BERTQA(hidden_size=args.hidden_size)
     ####model = nn.DataParallel(model, args.gpu_ids)
     if args.load_path:
@@ -74,10 +68,10 @@ def main(args):
                                  maximize_metric=args.maximize_metric,
                                  log=log)
 
-    # Get optimizer and scheduler
-    optimizer = optim.Adadelta(model.parameters(), args.lr,
-                               weight_decay=args.l2_wd)
-    scheduler = sched.LambdaLR(optimizer, lambda s: 1.)  # Constant LR
+
+    #optimizer = optim.Adadelta(model.parameters(), args.lr,
+    #                           weight_decay=args.l2_wd)
+    #scheduler = sched.LambdaLR(optimizer, lambda s: 1.)  # Constant LR
 
     # Get data loader
     log.info('Building dataset...')
@@ -94,37 +88,42 @@ def main(args):
                                  num_workers=args.num_workers,
                                  collate_fn=collate_fn)
 
+
+    # Get optimizer and scheduler
+
+    t_total = len(train_loader) * args.num_epochs
+    no_decay = ["bias", "LayerNorm.weight"]
+    optimizer_grouped_parameters = [
+        {
+            "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+            "weight_decay": 0.0
+        },
+        {"params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], "weight_decay": 0.0},
+    ]
+    optimizer = AdamW(optimizer_grouped_parameters, lr=args.lr, eps=args.adam_epsilon)
+    scheduler = get_linear_schedule_with_warmup(
+        optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=t_total
+    )
+
+
+
     # Train
     log.info('Training...')
     steps_till_eval = args.eval_steps
     epoch = step // len(train_dataset)
-    iii = 0
     while epoch != args.num_epochs:
         epoch += 1
         log.info(f'Starting epoch {epoch}...')
         with torch.enable_grad(), \
                 tqdm(total=len(train_loader.dataset)) as progress_bar:
-            #for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, ids in train_loader:
-            #print('shape of tokens_bert, token_type_ids, attention_mask:')
-
             for tokens_bert, token_type_ids, attention_mask, y1, y2, ids in train_loader:
-                #print(tokens_bert.shape)
-                #print(token_type_ids.shape)
-                #print(attention_mask.shape)
-                # Setup for forward
-                #cw_idxs = cw_idxs.to(device)
-                #qw_idxs = qw_idxs.to(device)
-                print('qqqqqqqqqqqqqqqqqqqqqqq', iii)
-                iii += 1
                 tokens_bert = tokens_bert.to(device)
                 token_type_ids = token_type_ids.to(device)
                 attention_mask = attention_mask.to(device)
-                #batch_size = cw_idxs.size(0)
                 batch_size = tokens_bert.size(0)
                 optimizer.zero_grad()
 
                 # Forward
-                #log_p1, log_p2 = model(cw_idxs, qw_idxs)
                 log_p1, log_p2 = model(tokens_bert, token_type_ids, attention_mask)
                 y1, y2 = y1.to(device), y2.to(device)
                 loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
@@ -186,19 +185,14 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2):
         gold_dict = json_load(fh)
     with torch.no_grad(), \
             tqdm(total=len(data_loader.dataset)) as progress_bar:
-        #for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, ids in data_loader:
-        for tokens_bert, token_type_ids, attention_mask, y1, y2, ids in data_loader:
+        for tokens_bert, token_type_ids, attention_mask, y1, y2, ids in data_loader:  # ids start from 1 and ends with a number higher than the number of elem
             # Setup for forward
             tokens_bert = tokens_bert.to(device)
             token_type_ids = token_type_ids.to(device)
             attention_mask = attention_mask.to(device)
-            #cw_idxs = cw_idxs.to(device)
-            #qw_idxs = qw_idxs.to(device)
-            #batch_size = cw_idxs.size(0)
             batch_size = tokens_bert.size(0)
 
             # Forward
-            #log_p1, log_p2 = model(cw_idxs, qw_idxs)
             log_p1, log_p2 = model(tokens_bert, token_type_ids, attention_mask)
             y1, y2 = y1.to(device), y2.to(device)
             loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)

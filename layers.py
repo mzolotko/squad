@@ -259,10 +259,8 @@ class QASoftmax(nn.Module):
         # Shapes: (batch_size, seq_len, 1)
         #start_logits = bert_h_states
         logits_start = self.start_linear(bert_hidden_states)   # (batch_size, sequence_length, 1)
-        #mod_2 = self.rnn(mod, mask.sum(-1))
         logits_end = self.end_linear(bert_hidden_states)    # (batch_size, sequence_length, 1)
-
-        adj_attention_mask = strip_last_ones(token_type_ids)
+        adj_attention_mask = strip_last_ones(token_type_ids)  # remove last <SEP> token
         adj_attention_mask[:, 0] = 1  # enable the very first position (<CLS> token) to be taken into account by softmax
                                       # this will indicate unanswerable questions, see BERT paper
 
