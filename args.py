@@ -73,7 +73,9 @@ def get_setup_args():
                         help='Number of GloVe vectors')
     parser.add_argument('--ans_limit',
                         type=int,
-                        default=50,
+			#################################################
+                        default=30,
+			#################################################
                         help='Max number of words in a training example answer')
     parser.add_argument('--char_limit',
                         type=int,
@@ -104,6 +106,13 @@ def get_train_args():
                         type=float,
                         default=0.5,
                         help='Learning rate.')
+#############################
+    parser.add_argument("--adam_epsilon",
+                        default=1e-8,
+                        type=float,
+                        help="Epsilon for Adam optimizer.")
+    parser.add_argument("--warmup_steps", default=0, type=int, help="Linear warmup over warmup_steps.")
+############################
     parser.add_argument('--l2_wd',
                         type=float,
                         default=0,
@@ -233,7 +242,7 @@ def add_train_test_args(parser):
                         help='Base directory for saving information.')
     parser.add_argument('--batch_size',
                         type=int,
-                        default=64,
+                        default=8,
                         help='Batch size per GPU. Scales automatically when \
                               multiple GPUs are available.')
     parser.add_argument('--use_squad_v2',

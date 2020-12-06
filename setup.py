@@ -124,10 +124,19 @@ def process_file(filename, data_type, args):
     contexts = []
     #questions_all = []
     questions = []
+    ##########################################
+    all_answers = []
+    uuids = []
+
+    ##########################################
+
     answers_start_end = []
     eval_examples = {}
     #examples_bert_ref = {}
-    total = 0
+    ###############################
+    #total = 0
+    total = -1
+    ###############################
     with open(filename, "r") as fh:
         source = json.load(fh)
         for article in tqdm(source["data"]):
@@ -207,12 +216,17 @@ def process_file(filename, data_type, args):
                     examples_spacy.append(example)
                     contexts.append(context)
                     questions.append(ques)
-                    eval_examples[str(total)] = {"context": context,
-                                                 "question": ques,
-                                                 "spans": spans_spacy,
-                                                 "answers": answer_texts,
-                                                 "uuid": qa["id"]}
+                    #########################################################      
+                    #eval_examples[str(total)] = {"context": context,
+                    #                             "question": ques,
+                    #                             "spans": spans_spacy,
+                    #                             "answers": answer_texts,
+                    #                             "uuid": qa["id"]}
                     #print(f'next example finished, {time.time() - tim:.2f} s. elapsed')
+                    all_answers.append(answer_texts)
+                    uuids.append(qa["id"])
+
+                    #########################################################
 
         tokenizer, tokenizer_result = word_tokenize_bert(sent1=questions, sent2=contexts, pad_limit=para_limit+ques_limit)
         tokens_bert = tokenizer_result['input_ids']
@@ -225,6 +239,9 @@ def process_file(filename, data_type, args):
             mask = strip_last_ones(torch.tensor(token_type_ids[i]).unsqueeze(dim=0)).bool()
             spans = convert_idx(contexts[i], tokenizer.convert_ids_to_tokens(torch.masked_select(tokens_sentence, mask)))
             ys_bert_sentence = []
+	    #############################################
+            shift = int(np.argwhere(np.array(token_type_ids[i]) == 1).ravel()[0]) # first index where token_type_ids == 1
+	    #############################################
             for answer in answers_start_end[i]:
 
                 answer_span = []
@@ -235,15 +252,24 @@ def process_file(filename, data_type, args):
                     if not (answer_end <= span[0] or answer_start >= span[1]):
                         answer_span.append(idx)
                         y1, y2 = answer_span[0], answer_span[-1]
-
-                shift = np.argwhere(np.array(token_type_ids[i]) == 1).ravel()[0] # first index where token_type_ids == 1
-
+		###########################################################
+                #shift = np.argwhere(np.array(token_type_ids[i]) == 1).ravel()[0] # first index where token_type_ids == 1
+		################################################################
                 #print(f'answer {i}: y1 and y2 before shift: {y1}, {y2}' )
-                y1 = y1 + int(shift)
-                y2 = y2 + int(shift)
+		###########################################
+                y1 = y1 + shift
+                y2 = y2 + shift
+		##########################################
                 #print(f'after shift: {y1}, {y2}' )
                 ys_bert_sentence.append((y1, y2))
-            #if ys_bert_sentence != None:  # will be false if there are no answers: e.g. in the test set
+            eval_examples[str(i)] = {"context": contexts[i],
+                                                 "question": questions[i],
+                                                 "spans": spans,
+                                                 "answers": all_answers[i],
+                                                 "shift": shift,
+                                                 "uuid": uuids[i]}
+
+	    #if ys_bert_sentence != None:  # will be false if there are no answers: e.g. in the test set
             ys_bert.append(ys_bert_sentence)
             #examples_bert_ref[str(i)] = {"spans_bert": spans, "ys_bert": ys_bert_sentence}
 
@@ -541,7 +567,7 @@ def save(filename, obj, message=None):
 
 def pre_process(args):
     tim = time.time()
-    print('started pre_process')
+    #print('started pre_process')
     # Process training set and use it to decide on the word/character vocabularies
     #word_counter, char_counter = Counter(), Counter()
     #train_examples, train_eval = process_file(args.train_file, "train", word_counter, char_counter)
@@ -556,11 +582,11 @@ def pre_process(args):
     #dev_examples, dev_eval = process_file(args.dev_file, "dev", word_counter, char_counter)
     #dev_examples, dev_ex_bert, dev_eval, dev_ys_bert, dev_tokens_bert, dev_token_type_ids, dev_attention_mask = process_file(args.dev_file, "dev", args)
     dev_examples, dev_eval, dev_ys_bert, dev_tokens_bert, dev_token_type_ids, dev_attention_mask = process_file(args.dev_file, "dev", args)
-    print(f'exited process_file, {time.time() - tim:.2f} s. elapsed')
+    #print(f'exited process_file, {time.time() - tim:.2f} s. elapsed')
     build_features(args, train_examples, train_ys_bert, train_tokens_bert, train_token_type_ids, train_attention_mask,  "train", args.train_record_file)
     #dev_meta = build_features(args, dev_examples, "dev", args.dev_record_file, word2idx_dict, char2idx_dict)
     dev_meta = build_features(args, dev_examples, dev_ys_bert, dev_tokens_bert, dev_token_type_ids, dev_attention_mask, "dev", args.dev_record_file)
-    print(f'exited build_features, {time.time() - tim:.2f} s. elapsed')
+    #print(f'exited build_features, {time.time() - tim:.2f} s. elapsed')
     ###################
     if args.include_test_examples:
         #test_examples, test_eval = process_file(args.test_file, "test", word_counter, char_counter)

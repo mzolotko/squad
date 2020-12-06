@@ -673,8 +673,15 @@ def convert_tokens(eval_dict, qa_id, y_start_list, y_end_list, no_answer):
     for qid, y_start, y_end in zip(qa_id, y_start_list, y_end_list):
         context = eval_dict[str(qid)]["context"]
         spans = eval_dict[str(qid)]["spans"]
+	#################################################
+        shift = eval_dict[str(qid)]["shift"]
+	############################################
         uuid = eval_dict[str(qid)]["uuid"]
-        if no_answer and (y_start == 0 or y_end == 0):
+	########################################
+        y_start = y_start - shift
+        y_end = y_end - shift
+        if no_answer and (y_start < 0 or y_end < 0):
+	################################
             pred_dict[str(qid)] = ''
             sub_dict[uuid] = ''
         else:
@@ -769,3 +776,4 @@ def compute_f1(a_gold, a_pred):
     recall = 1.0 * num_same / len(gold_toks)
     f1 = (2 * precision * recall) / (precision + recall)
     return f1
+# MZ

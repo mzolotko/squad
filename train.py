@@ -24,6 +24,9 @@ from tqdm import tqdm
 from ujson import load as json_load
 from util import collate_fn, SQuAD
 
+################################
+from transformers import AdamW, get_linear_schedule_with_warmup
+################################
 
 def main(args):
     # Set up logging and devices
@@ -75,9 +78,12 @@ def main(args):
                                  log=log)
 
     # Get optimizer and scheduler
-    optimizer = optim.Adadelta(model.parameters(), args.lr,
-                               weight_decay=args.l2_wd)
-    scheduler = sched.LambdaLR(optimizer, lambda s: 1.)  # Constant LR
+####################################
+   #optimizer = optim.Adadelta(model.parameters(), args.lr,
+   #                            weight_decay=args.l2_wd)
+   # scheduler = sched.LambdaLR(optimizer, lambda s: 1.)  # Constant LR
+####################################
+
 
     # Get data loader
     log.info('Building dataset...')
@@ -94,11 +100,30 @@ def main(args):
                                  num_workers=args.num_workers,
                                  collate_fn=collate_fn)
 
+#########################################################
+    # Get optimizer and scheduler
+
+    t_total = len(train_loader) * args.num_epochs
+    no_decay = ["bias", "LayerNorm.weight"]
+    optimizer_grouped_parameters = [
+        {
+            "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+            "weight_decay": 0.0
+        },
+        {"params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], "weight_decay": 0.0},
+    ]
+    optimizer = AdamW(optimizer_grouped_parameters, lr=args.lr, eps=args.adam_epsilon)
+    scheduler = get_linear_schedule_with_warmup(
+        optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=t_total
+    )
+#########################################################
+
+
     # Train
     log.info('Training...')
     steps_till_eval = args.eval_steps
     epoch = step // len(train_dataset)
-    iii = 0
+    #iii = 0
     while epoch != args.num_epochs:
         epoch += 1
         log.info(f'Starting epoch {epoch}...')
@@ -114,8 +139,8 @@ def main(args):
                 # Setup for forward
                 #cw_idxs = cw_idxs.to(device)
                 #qw_idxs = qw_idxs.to(device)
-                print('qqqqqqqqqqqqqqqqqqqqqqq', iii)
-                iii += 1
+                #print('qqqqqqqqqqqqqqqqqqqqqqq', iii)
+                #iii += 1
                 tokens_bert = tokens_bert.to(device)
                 token_type_ids = token_type_ids.to(device)
                 attention_mask = attention_mask.to(device)
